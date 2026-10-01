@@ -7,11 +7,6 @@ h1 = 3000e3 # 3000 kJ/kg
 h2 = 2600e3
 v1 = 150 # m/s
 v2 = 0
-rho1 = PropsSI('D', 'P', p1, 'H', h1, WATER)
-rho2 = PropsSI('D', 'P', p2, 'H', h2, WATER)
-print(f"ρ1: {rho1} kg/m³")
-print(f"ρ2: {rho2} kg/m³")
-
 print(f'e from dh: {(h1-h2)/1000} kJ/kg')
 e_dv = 0.5 * (v1**2 - v2**2)
 print(f"e from dv: {e_dv/1000} kJ/kg")
@@ -28,4 +23,14 @@ print(f"h2l: {h2l/1000} kJ/kg")
 print(f"h2v: {h2v/1000} kJ/kg")
 x2 = (h2-h2l) / (h2v-h2l)
 print(f"x2: {x2}")
+
+'''
+e from dh: 400.0 kJ/kg
+e from dv: 11.25 kJ/kg
+q12: -26.8 kJ/kg
+______
+h2l: 640.1853353633849 kJ/kg
+h2v: 2748.1076146579694 kJ/kg
+x2: 0.9297376302187321
+'''
 
