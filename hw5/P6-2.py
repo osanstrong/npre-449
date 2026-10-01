@@ -115,9 +115,28 @@ print(f"Steam rate: {sr*1000} kg/kWe-hr")
 print(f"Added 3'->4: {(h4-h3p)/1000} kJ/kg")
 print(f"Added 4 ->1: {(h1-h4) /1000} kJ/kg")
 
+'''
+Cycle C
+h1: 2903.0028084402525 kJ/kg
+h3: 138.28554911597698 kJ/kg
+h4: 1306.077914527653 kJ/kg
+h5: 2761.949736266131 kJ/kg
+x2: 0.7194361740011986 -> h2: 1881.266165133955 kJ/kg
+h3p: 143.2899698793983 kJ/kg
+Efficiency: 0.3684195718975912
+Steam rate: 3.5407552944435037 kg/kWe-hr
+Added 3'->4: 1162.7879446482546 kJ/kg
+Added 4 ->1: 1596.9248939125996 kJ/kg
+'''
+
 ### Misc
 print("________\nMisc")
 eff_max = 1 - (T_lo / T_hi)
 print(f"Carnot efficiency: {eff_max}")
+
+'''
+Misc
+Carnot efficiency: 0.4592422502870265
+'''
 
 
