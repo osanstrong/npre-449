@@ -106,8 +106,9 @@ print(f"Efficiency (r): ({WT1r} + {WT2r} - {WP1r} - {WP1r}) / {Qinr}")
 print("Across the board r gets less turbine work out, takes more work to pump, and more Q in")
 
 print('_________')
-print(f"eff_s: {eff_s}\neff_r: {eff_r}")
-
+# print(f"eff_s: {eff_s}\neff_r: {eff_r}")
+print(f"6-3-1, real cycle efficiency: {eff_r}")
+print(f"6-3-2, max. cycle efficiency: {eff_s}")
 
 
     
