@@ -1,0 +1,61 @@
+\documentclass[12pt]{article}
+\usepackage{graphicx} % Required for inserting images
+
+\title{NRPE 349 Computer Project 1: Comparing Analytic and Finite-Difference Numerical solutions to a Transient Spherical System}
+\author{Owen Strong \\
+\itshape Prof.: Caleb Brooks
+}
+\date{March 4th, 2026}
+
+\usepackage[
+    style=ieee
+]{biblatex}
+\bibliography{refs.bib}
+
+\usepackage[letterpaper, margin=1in]{geometry}
+\newcommand{\figwidth}{0.75\linewidth}
+
+% Common Macros
+\newcommand{\micCi}{~$\mathrm{\mu Ci}$~}
+
+\usepackage{placeins} % FloatBarrier
+\usepackage{amsmath} % align
+\usepackage{xcolor}
+\usepackage[colorlinks=true, citecolor=violet, linkcolor=violet, urlcolor=violet]{hyperref}
+\usepackage{enumitem}
+\usepackage{xspace}
+
+% \usepackage{fancyvrb} % Fancy verbose, for importing code from file
+\usepackage{listings} % Code visualization, and import from file
+
+% Substitutions for characters used in the python script that LaTeX doesn't like
+% \usepackage{newunicodechar}
+% \newunicodechar{²}{2}
+% \usepackage{newunicodechar}
+% \newunicodechar{²}{\ifmmode{}^2\else\texttwosuperior\fi}
+% \newunicodechar{³}{\ifmmode{}^3\else\textthreesuperior\fi}
+
+\begin{document}
+\pagenumbering{gobble}
+\maketitle
+\pagebreak
+{\hypersetup{linkcolor=black}\tableofcontents}
+\pagebreak
+\pagenumbering{arabic}
+\begin{abstract}
+\end{abstract}
+
+\section{Introduction and Background}
+\section{Experimental Procedure}\label{sec:methods}
+\newcommand{\Python}{\texttt{Python}\xspace}
+\section{Experimental Results}\label{sec:results}
+\FloatBarrier\section{Discussion}\label{sec:disc}
+\section{Conclusions}\label{sec:conc}
+\pagebreak
+\printbibliography
+\pagebreak
+\appendix
+\section{Numerical Solution Script}\label{app:efd-script}
+The full \Python script used to evaluate the system is included below:
+\lstinputlisting[language=Python, basicstyle=\tiny, breaklines=true]{cp_export.py}
+\end{document}
