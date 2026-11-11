@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 
 
 ## Debugging
-PRINT_DEBUG = False
+PRINT_DEBUG = True
 def dbprint(str):
     if PRINT_DEBUG:
         print(str)
@@ -49,6 +49,7 @@ def calc_f_1ph(Re):
 
 def calc_dP(G, drρdz, f, A, Pwet, ρ, g):
     return -((G**2)*drρdz + 0.5*f*(G**2)*Pwet/(ρ*A) + ρ*g)
+    # return -(0 + ρ*g)
 
 def calc_dχedz(hfg, qlin, Af, G, dhfdP, χe, dhfgdP, dPdz):
     return (qlin/(Af*G) - ((dhfdP + χe*dhfgdP)*dPdz)) / hfg 
@@ -111,6 +112,7 @@ def calc_Tw_LW(Re, L, P, Tf, χ, qpp, Tw_guess):
 
     zero_func = lambda Tw: np.sqrt((F*hL*(Tw-Tf))**2 + (S*hPool*(Tw-Tsat))**2) - qpp
     Tw = newton(zero_func, Tw_guess, maxiter=150)
+    dbprint(f"pr: {pr}, ")
     dbprint(f"Tf: {Tf} P: {P} q'': {qpp} W/m²")
     dbprint(f"hL: {hL} hPool: {hPool}")
     dbprint(f"F: {F} S: {S}")
@@ -119,74 +121,98 @@ def calc_Tw_LW(Re, L, P, Tf, χ, qpp, Tw_guess):
 
 
 
+class Config:
+    def prop00(self, name):
+        return propPT(name, self.P0, self.Tf0)
+    
+    def __init__(self, rtype):
+        self.rtype = rtype
+        if rtype == PWR:
+            # PWR params
+            self.P0 = 15 * 1e6
+            ## Givens for PWR
+            self.H = 4.1 #m
+            self.Drod = 0.94 / 100 # m, originally cm
+            self.Pitch = 1.25 / 100 # m, originally cm
+            self.Dfuel = 0.81 / 100 # ''
+            self.tgap = 0.005 / 100 # ''
+            self.kgap = 0.25 # W/mK
+            self.kfuel = 3.6 # W/mK
+            self.kclad = 21.5 # W/mK
+
+            self.G = 3800 # kg / m²s
+            self.qp0 = 380 * 100 # W / m, originally W/cm
+            self.P0 = 15 * 1e6 # Pa, originally MPa
+            self.Tf0 = K(277) # K, orignally ⁰C
+
+
+            
+
+
+            pass
+        elif rtype == BWR:
+            # BWR params
+            pass
+        else:
+            raise ValueError(f"Type {rtype} does not correspond to either PWR ({PWR}) or BWR ({BWR})")
+        self.recalc_secondaries()
+
+    def recalc_secondaries(self):
+        self.Dgap = self.Dfuel + 2*self.tgap # '', diameter to where gap meets cladding
+
+        self.Af = self.Pitch**2 - (0.25 * PI * self.Drod**2)
+        self.Pwet = PI*self.Drod
+        self.Pheat = self.Pwet
+        self.Lchar = self.Drod
+        self.Lchar = 4 * self.Af / self.Pwet
+        dbprint(f"Pwet and Pheat: {self.Pwet} m")
+        dbprint(f"Fluid area Af: {self.Af} m²")
+        dbprint(f"Characteristic length: {self.Lchar} m")
+
+        ## Properties constant 
+        self.μ = self.prop00('viscosity')
+        self.cp = self.prop00('CPMASS')
+        self.ρ = self.prop00('D')
+        dbprint(f"Dynamic viscosity: {self.μ} Pa s")
+
+
+        self.Re = calc_Re(self.Lchar, self.G, self.μ)
+        dbprint(f"Reynolds number: {self.Re} >> 10,000 -> Turbulent flow")
+        dbprint(f"Which leads to friction factor f = {calc_f_1ph(self.Re)}")
+        pass
+        
+
+def solve_distributions(c, n):
 
 
 
-## Variation
+    dz = c.H / n
 
-if option == 1:
-    ## Givens for PWR
-    H = 4.1 #m
-    Drod = 0.94 / 100 # m, originally cm
-    Pitch = 1.25 / 100 # m, originally cm
-    Dfuel = 0.81 / 100 # ''
-    tgap = 0.005 / 100 # ''
-    Dgap = Dfuel + 2*tgap # '', diameter to where gap meets cladding
-    kgap = 0.25 # W/mK
-    kfuel = 3.6 # W/mK
-    kclad = 21.5 # W/mK
-
-    G = 3800 # kg / m²s
-    qp0 = 380 * 100 # W / m, originally W/cm
-    P0 = 15 * 1e6 # Pa, originally MPa
-    Tf0 = K(277) # K, orignally ⁰C
-
-    Af = Pitch**2 - (0.25 * PI * Drod**2)
-    Pwet = PI*Drod
-    Pheat = Pwet
-    Lchar = Drod
-    Lchar = 4 * Af / Pwet
-    dbprint(f"Fluid area Af: {Af} m²")
-    dbprint(f"Characteristic length: {Lchar} m")
-
-    ## Properties constant 
-    prop00 = lambda name: propPT(name, P0, Tf0)
-    μ = prop00('viscosity')
-    cp = prop00('CPMASS')
-    ρ = prop00('D')
-    dbprint(f"Dynamic viscosity: {μ} Pa s")
-
-
-    Re = calc_Re(Lchar, G, μ)
-    dbprint(f"Reynolds number: {Re} >> 10,000 -> Turbulent flow")
-    dbprint(f"Which leads to friction factor f = {calc_f_1ph(Re)}")
-
-    n = 500
-    dz = H / n
-
-    z = np.linspace(0, H, n)
+    z = np.linspace(0, c.H, n)
     hfhg = lambda P: (
                 PropsSI('H', 'P', P, 'Q', 0, WATER),
                 PropsSI('H', 'P', P, 'Q', 1, WATER))
 
     ## P
     P = np.zeros(n)
-    P[0] = P0
-    f = calc_f_1ph(Re)
+    P[0] = c.P0
+    f = calc_f_1ph(c.Re)    
     Tf = np.zeros(n)
-    Tf[0] = Tf0
+    Tf[0] = c.Tf0
     χe = np.zeros(n)
-    hf0, hg0 = hfhg(P0)
+    hf0, hg0 = hfhg(c.P0)
     hfg0 = hg0-hf0
-    Tsat0 = PropsSI('T', 'P', P0, 'Q', 0.5, WATER)
-    χe[0] = cp*(Tf0-Tsat0)/hfg0
-    dbprint(f"T at inlet: {Tf0} K")
-    dbprint(f"cp at inlet: {cp} J/kgK")
+    Tsat0 = PropsSI('T', 'P', c.P0, 'Q', 0.5, WATER)
+    χe[0] = c.cp*(c.Tf0-Tsat0)/hfg0
+
+    dbprint(f"Tf at inlet: {c.Tf0} K")
+    dbprint(f"Tsat at inlet: {Tsat0} K")
+    dbprint(f"cp at inlet: {c.cp} J/kgK")
     dbprint(f'h_fg at inlet: {hfg0} J/kg')
     dbprint(f"χe0: {χe[0]}")
 
     for i in range(n-1):
-        dPdz = calc_dP(G, 0, f, G, Pwet, ρ, g)
+        dPdz = calc_dP(c.G, 0, f, c.Af, c.Pwet, c.ρ, g)
         dP = dPdz * dz
         P[i+1] = P[i] + dP
 
@@ -202,10 +228,12 @@ if option == 1:
         dhfdP = (hfn-hfi) / dP
         dhfgdP = (hfgn-hfgi) / dP
 
-        qp = q_lin(qp0, H, z[i])
-        dχedz = calc_dχedz(hfgi, qp, Af, G, dhfdP, χe[i], dhfgdP, dPdz)
+        qp = q_lin(c.qp0, c.H, z[i])
+        qpp = qp / c.Pheat
+        dbprint(f"q': {qp} W/m -> q'': {qpp}")
+        dχedz = calc_dχedz(hfgi, qp, c.Af, c.G, dhfdP, χe[i], dhfgdP, dPdz)
         χe[i+1] = χe[i] + dχedz*dz
-        Tf[i+1] = calc_Tf(χe[i+1], P[i+1], cp)
+        Tf[i+1] = calc_Tf(χe[i+1], P[i+1], c.cp)
 
     ## Secondary temperature evaluations
 
@@ -222,78 +250,150 @@ if option == 1:
     TWO_PHASE = 2
     ht_status = ONE_PHASE    
     for i in range(n):
-        qp = q_lin(qp0, H, z[i])
+        qp = q_lin(c.qp0, c.H, z[i])
         Tsat[i] = PropsSI('T', 'P', P[i], 'Q', 0, WATER)
 
-        qpp = qp / Pheat
+        qpp = qp / c.Pheat
         ## Heat transfer, then 
         if ht_status == ONE_PHASE:
-            h = calc_h_DB(Re, Lchar, P[i], Tf[i])
+            h = calc_h_DB(c.Re, c.Lchar, P[i], Tf[i])
             # hf[i] = h
             Tw[i] = Tf[i] + qpp / h
             if (Tw[i] >= Tsat[i]):
                 dbprint(f"h right before LW: {h} W/m²K")
         elif ht_status == TWO_PHASE:
-            Tw[i] = calc_Tw_LW(Re, Lchar, P[i], Tf[i], 0, qpp, Tw[i-1]) # Calls previous Tw as a starting guess, but this is never called on z=0
+            Tw[i] = calc_Tw_LW(c.Re, c.Lchar, P[i], Tf[i], 0, qpp, Tw[i-1]) # Calls previous Tw as a starting guess, but this is never called on z=0
         if Tw[i] >= Tsat[i]:
             ht_status = TWO_PHASE
         elif Tw[i] < Tsat[i]:
             ht_status = ONE_PHASE
         ## within clad
         # Tin = Tout + q'/2kπ * ln(Rout/Rin) for annulars
-        Rc = Drod / 2
-        Rf = Dfuel / 2
-        Rg = Rf + tgap
+        Rc = c.Drod / 2
+        Rf = c.Dfuel / 2
+        Rg = Rf + c.tgap
 
-        Tgap[i] = Tw[i] + (qp / (2*kclad*PI)) * np.log(Rc / Rg)
+        Tgap[i] = Tw[i] + (qp / (2*c.kclad*PI)) * np.log(Rc / Rg)
         ## Edge of fuel
-        Tfuel[i] = Tgap[i] + (qp / (2*kgap*PI)) * np.log(Rg / Rf)
+        Tfuel[i] = Tgap[i] + (qp / (2*c.kgap*PI)) * np.log(Rg / Rf)
 
 
 
         #Within fuel
         qppp = qp / (PI * (Rf**2))
-        Tcl[i] = Tfuel[i] + ((Rf**2)*qppp/(4*kfuel))
+        Tcl[i] = Tfuel[i] + ((Rf**2)*qppp/(4*c.kfuel))
 
-
-    Tfd = np.zeros(n)
-    Tfd[0] = Tf0
-    ## T pass
-    for i in range(n-1):
-        qp = q_lin(qp0, H, z[i])
-        dT = qp*dz / (G*Af*cp)
-        Tfd[i+1] = Tfd[i] + dT
 
     ## Sanity check
-    qtot_an = qp0*2*H/PI
+    qtot_an = c.qp0*2*c.H/PI
     # qtot_nu = sum(q_lin(qp0, H, z))*dz
     # print(f"Qtot analytic: {qtot_an} W")
     # print(f"Qtot numeric:  {qtot_nu} W")
-    m = G*Af
-    hin = propPT('H', P0, Tf0)  
-    hout = hin + qtot_an/m
+    m = c.G*c.Af
+    hin = propPT('H', c.P0, c.Tf0)  
+    hout = hin + qtot_an
     dbprint(f"h goes from\n{hin} J/kg to\n{hout} J/kg")
     # Tfout = PropsSI('T', 'P', P[-1], 'H', hout)
-    Tfout = Tf0 + qtot_an/(m*cp)
-    dbprint(f"Which translates to final Tf of {Tfout-K(0)}⁰C")
+    Tfout = c.Tf0 + qtot_an/(m*c.cp)
+    dbprint(f"Which translates to (analytic) final Tf of {Tfout-K(0)}⁰C")
+
+
+    return z, Tf, Tw, Tgap, Tfuel, Tcl, Tsat, χe, P
+    pass
+
+
+## Variation
+
+if option == 1:
+    base_config = Config(PWR)
+    n = 500
+    dz = base_config.H / n
+
+    ## Main solve
+    #0, 1,  2,    3,     4,   5,    6,  7, 8
+    z, Tf, Tw, Tgap, Tfuel, Tcl, Tsat, χe, P = solve_distributions(base_config, n)
+    IDX_TCL = 5
+    IDX_χE = 7
+
+    ## Parameter sweeps
+    P0_sweep = [P_MPa*1e6 for P_MPa in [14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18]]
+    dT_sweep = [-50, -35, -25, -15, -5, 0, 5, 15, 25, 35, 50]
+    dT_sweep = [-50, -35, -25, -15, -5, 0, 5, 7, 8, 8.7]
+    Tf0_sweep = [base_config.Tf0 + dT for dT in dT_sweep]
+    clad_sweep = [base_config.Drod * mod for mod in [0.95, 0.96, 0.97, 0.98, 0.99, 1, 1.01, 1.02, 1.03, 1.04, 1.05]]
+
+    def plot_χe_Tcl(params, param_label, results):
+        fig, ax1 = plt.subplots()
+
+        color = 'tab:red'
+        ax1.set_xlabel(param_label)
+        ax1.set_ylabel('χe at outlet (-)', color=color)
+
+        
+        ax1.scatter(params, [res[IDX_χE][-1] for res in results], color=color)
+        ax1.tick_params(axis='y', labelcolor=color)
+
+        ax2 = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
+
+        color = 'tab:blue'
+        ax2.set_ylabel('Peak $T_{cl}$ (⁰C)', color=color)  # we already handled the x-label with ax1
+        ax2.scatter(params, [max(res[IDX_TCL]) - K(0) for res in results], color=color)
+        ax2.tick_params(axis='y', labelcolor=color)
+
+        fig.tight_layout()  # otherwise the right y-label is slightly clipped
+        plt.show()
+        return fig, ax1, ax2
+
+    def conf_custom_P0(P0):
+        conf = Config(PWR)
+        conf.P0 = P0
+        conf.recalc_secondaries()
+        return conf
+
+    # P0_results = [solve_distributions(conf_custom_P0(P0), n) for P0 in P0_sweep]
+    # plot_χe_Tcl([P0/1e6 for P0 in P0_sweep], 'Inlet P (MPa)', P0_results)
+
+
+    def conf_custom_Tf0(Tf0):
+        conf = Config(PWR)
+        conf.Tf0 = Tf0
+        conf.recalc_secondaries()
+        return conf
+
+    Tf0_results = [solve_distributions(conf_custom_Tf0(Tf0), n) for Tf0 in Tf0_sweep]
+    plot_χe_Tcl([Tf0-K(0) for Tf0 in Tf0_sweep], 'Inlet Tf (⁰C)', Tf0_results)
+
+    def conf_custom_Drod(Drod):
+        conf = Config(PWR)
+        conf.Drod = Drod
+        conf.recalc_secondaries()
+        return conf
+    # Drod_results = [solve_distributions(conf_custom_Drod(Drod), n) for Drod in clad_sweep]
+    # plot_χe_Tcl([(Drod - base_config.Dgap) * 100 / 2 for Drod in clad_sweep], 'Clad thickness (cm)', Drod_results)
 
 
 
+    # Tfd = np.zeros(n)
+    # Tfd[0] = base_config.Tf0
+    # ## T pass
+    # for i in range(n-1):
+    #     qp = q_lin(base_config.qp0, base_config.H, z[i])
+    #     dT = qp*dz / (base_config.G*base_config.Af*base_config.cp)
+    #     Tfd[i+1] = Tfd[i] + dT
 
 
+    # plt.plot(Tf-K(0), z*100, label="Fluid T from χe")
+    # plt.plot(Tfd-K(0), z*100, linestyle='--', label="Fuid T (alternate calculation)")
+    # plt.plot(Tw-K(0), z*100, label="Outer wall T")
+    # plt.plot(Tgap-K(0), z*100, label="Inside clad T")
+    # plt.plot(Tfuel-K(0), z*100, label="Outside fuel T")
+    # plt.plot(Tcl-K(0), z*100, label="Fuel Centerline T")
 
-    plt.plot(Tf-K(0), z*100, label="Fluid T from χe")
-    plt.plot(Tfd-K(0), z*100, linestyle='--', label="Fuid T (alternate calculation)")
-    plt.plot(Tw-K(0), z*100, label="Outer wall T")
-    plt.plot(Tgap-K(0), z*100, label="Inside clad T")
-    plt.plot(Tfuel-K(0), z*100, label="Outside fuel T")
-    plt.plot(Tcl-K(0), z*100, label="Fuel Centerline T")
-
-    plt.plot(Tsat-K(0), z*100, linestyle='--', label="T$_{sat}$")
-    plt.xlabel("T (⁰C)")
-    plt.ylabel("z (cm)")
-    plt.legend()
-    plt.show()
+    # plt.plot(Tsat-K(0), z*100, linestyle='--', label="T$_{sat}$")
+    # plt.xlabel("T (⁰C)")
+    # plt.ylabel("z (cm)")
+    # plt.legend()
+    # plt.show()
 
     # print(f"χe: {χe}")
     # plt.plot(χe, z*100, label="Equilibrium quality χe")
