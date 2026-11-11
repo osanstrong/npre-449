@@ -133,7 +133,7 @@ if option == 1:
     tgap = 0.005 / 100 # ''
     Dgap = Dfuel + 2*tgap # '', diameter to where gap meets cladding
     kgap = 0.25 # W/mK
-    kfuel = 2.6 # W/mK
+    kfuel = 3.6 # W/mK
     kclad = 21.5 # W/mK
 
     G = 3800 # kg / m²s
@@ -241,13 +241,19 @@ if option == 1:
             ht_status = ONE_PHASE
         ## within clad
         # Tin = Tout + q'/2kπ * ln(Rout/Rin) for annulars
-        Tgap[i] = Tw[i] + (qp / (2*kclad*PI)) * np.log(Drod / Dgap)
+        Rc = Drod / 2
+        Rf = Dfuel / 2
+        Rg = Rf + tgap
+
+        Tgap[i] = Tw[i] + (qp / (2*kclad*PI)) * np.log(Rc / Rg)
         ## Edge of fuel
-        Tfuel[i] = Tgap[i] + (qp / (2*kgap*PI)) * np.log(Dgap / Dfuel)
+        Tfuel[i] = Tgap[i] + (qp / (2*kgap*PI)) * np.log(Rg / Rf)
+
+
 
         #Within fuel
-        qpp = qp / (0.25 * PI * (Dfuel**2))
-        Tcl[i] = Tfuel[i] + (qpp/(4*kfuel))*(0.25*(Dfuel**2))
+        qppp = qp / (PI * (Rf**2))
+        Tcl[i] = Tfuel[i] + ((Rf**2)*qppp/(4*kfuel))
 
 
     Tfd = np.zeros(n)
