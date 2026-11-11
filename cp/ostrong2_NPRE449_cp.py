@@ -10,6 +10,13 @@ from scipy.optimize import newton
 # Post-processing/plotting
 from matplotlib import pyplot as plt
 
+
+## Debugging
+PRINT_DEBUG = False
+def dbprint(str):
+    if PRINT_DEBUG:
+        print(str)
+
 ## Fundamental Constants
 PI = 3.14159265358979323
 WATER = 'IF97::Water'
@@ -88,7 +95,6 @@ def calc_h_DB(Re, L, P, T):
     return Nu*k / L
 
 
-
 def calc_Tw_LW(Re, L, P, Tf, χ, qpp, Tw_guess):
     Prl = satPropP('PRANDTL', P, 0)
     ρl, ρv = fgSatPropP('D', P)
@@ -98,16 +104,17 @@ def calc_Tw_LW(Re, L, P, Tf, χ, qpp, Tw_guess):
     # print(f"S: {S}")
 
     Tsat = PropsSI('T', 'P', P, 'Q', 0, WATER)
-    # NuL = calc_Nu_DB(Re, Prl)
-    # k = PropsSI('CONDUCTIVITY', 'P', P, 'Q', 0, WATER)
-    # hL = NuL*k / L
     hL = calc_h_DB(Re, L, P, Tf)
     pr = P / P_CRIT_WATER
 
     hPool = 55 * (pr**0.12) * (qpp**(2/3)) * ((-np.log10(pr))**(-0.55)) * (M_WATER**(-0.5))
-    # S = 0
+
     zero_func = lambda Tw: np.sqrt((F*hL*(Tw-Tf))**2 + (S*hPool*(Tw-Tsat))**2) - qpp
-    Tw = newton(zero_func, Tw_guess)
+    Tw = newton(zero_func, Tw_guess, maxiter=150)
+    dbprint(f"Tf: {Tf} P: {P} q'': {qpp} W/m²")
+    dbprint(f"hL: {hL} hPool: {hPool}")
+    dbprint(f"F: {F} S: {S}")
+    dbprint(f" -> Tw: {Tw} K")
     return Tw
 
 
@@ -139,22 +146,22 @@ if option == 1:
     Pheat = Pwet
     Lchar = Drod
     Lchar = 4 * Af / Pwet
-    print(f"Fluid area Af: {Af} m²")
-    print(f"Characteristic length: {Lchar} m")
+    dbprint(f"Fluid area Af: {Af} m²")
+    dbprint(f"Characteristic length: {Lchar} m")
 
     ## Properties constant 
     prop00 = lambda name: propPT(name, P0, Tf0)
     μ = prop00('viscosity')
     cp = prop00('CPMASS')
     ρ = prop00('D')
-    print(f"Dynamic viscosity: {μ} Pa s")
+    dbprint(f"Dynamic viscosity: {μ} Pa s")
 
 
     Re = calc_Re(Lchar, G, μ)
-    print(f"Reynolds number: {Re} >> 10,000 -> Turbulent flow")
-    print(f"Which leads to friction factor f = {calc_f_1ph(Re)}")
+    dbprint(f"Reynolds number: {Re} >> 10,000 -> Turbulent flow")
+    dbprint(f"Which leads to friction factor f = {calc_f_1ph(Re)}")
 
-    n = 50000
+    n = 500
     dz = H / n
 
     z = np.linspace(0, H, n)
@@ -173,10 +180,10 @@ if option == 1:
     hfg0 = hg0-hf0
     Tsat0 = PropsSI('T', 'P', P0, 'Q', 0.5, WATER)
     χe[0] = cp*(Tf0-Tsat0)/hfg0
-    print(f"T at inlet: {Tf0} K")
-    print(f"cp at inlet: {cp} J/kgK")
-    print(f'h_fg at inlet: {hfg0} J/kg')
-    print(f"χe0: {χe[0]}")
+    dbprint(f"T at inlet: {Tf0} K")
+    dbprint(f"cp at inlet: {cp} J/kgK")
+    dbprint(f'h_fg at inlet: {hfg0} J/kg')
+    dbprint(f"χe0: {χe[0]}")
 
     for i in range(n-1):
         dPdz = calc_dP(G, 0, f, G, Pwet, ρ, g)
@@ -224,6 +231,8 @@ if option == 1:
             h = calc_h_DB(Re, Lchar, P[i], Tf[i])
             # hf[i] = h
             Tw[i] = Tf[i] + qpp / h
+            if (Tw[i] >= Tsat[i]):
+                dbprint(f"h right before LW: {h} W/m²K")
         elif ht_status == TWO_PHASE:
             Tw[i] = calc_Tw_LW(Re, Lchar, P[i], Tf[i], 0, qpp, Tw[i-1]) # Calls previous Tw as a starting guess, but this is never called on z=0
         if Tw[i] >= Tsat[i]:
@@ -239,8 +248,6 @@ if option == 1:
         #Within fuel
         qpp = qp / (0.25 * PI * (Dfuel**2))
         Tcl[i] = Tfuel[i] + (qpp/(4*kfuel))*(0.25*(Dfuel**2))
-
-
 
 
     Tfd = np.zeros(n)
@@ -259,10 +266,10 @@ if option == 1:
     m = G*Af
     hin = propPT('H', P0, Tf0)  
     hout = hin + qtot_an/m
-    print(f"h goes from\n{hin} J/kg to\n{hout} J/kg")
+    dbprint(f"h goes from\n{hin} J/kg to\n{hout} J/kg")
     # Tfout = PropsSI('T', 'P', P[-1], 'H', hout)
     Tfout = Tf0 + qtot_an/(m*cp)
-    print(f"Which translates to final Tf of {Tfout-K(0)}⁰C")
+    dbprint(f"Which translates to final Tf of {Tfout-K(0)}⁰C")
 
 
 
