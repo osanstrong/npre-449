@@ -13,7 +13,9 @@ from matplotlib import pyplot as plt
 ## Fundamental Constants
 PI = 3.14159265358979323
 WATER = 'IF97::Water'
-K = lambda deg_C: deg_C + 237.15
+P_CRIT_WATER = 22.064 * 1e6 # MPa -> Pa
+M_WATER = 18.05 # g / mol
+K = lambda deg_C: deg_C + 273.15
 g = 9.81 # m / s²
 
 #### ---- User Configuration ---- ####
@@ -47,6 +49,15 @@ def calc_dχedz(hfg, qlin, Af, G, dhfdP, χe, dhfgdP, dPdz):
 def propPT(key, P, T):
     return PropsSI(key, 'P', P, 'T', T, WATER)
 
+def fgSatPropP(key, P):
+    fProp = PropsSI(key, 'P', P, 'Q', 0, WATER)
+    gProp = PropsSI(key, 'P', P, 'Q', 1, WATER)
+    return fProp, gProp
+
+def satPropP(key, P, χ):
+    fP, gP = fgSatPropP(key, P)
+    return χ*gP + (1-χ)*fP
+
 def calc_Tf(χe, P, cp):
     hf = PropsSI('H', 'P', P, 'Q', 0, WATER)
     hg = PropsSI('H', 'P', P, 'Q', 1, WATER)
@@ -78,6 +89,31 @@ def calc_h_DB(Re, L, P, T):
 
 
 
+def calc_Tw_LW(Re, L, P, Tf, χ, qpp, Tw_guess):
+    Prl = satPropP('PRANDTL', P, 0)
+    ρl, ρv = fgSatPropP('D', P)
+
+    F = (1 + χ*Prl*(ρl/ρv - 1))**0.35
+    S = 1/(1 + 0.055*(F**0.1)*(Re**0.16))
+    # print(f"S: {S}")
+
+    Tsat = PropsSI('T', 'P', P, 'Q', 0, WATER)
+    # NuL = calc_Nu_DB(Re, Prl)
+    # k = PropsSI('CONDUCTIVITY', 'P', P, 'Q', 0, WATER)
+    # hL = NuL*k / L
+    hL = calc_h_DB(Re, L, P, Tf)
+    pr = P / P_CRIT_WATER
+
+    hPool = 55 * (pr**0.12) * (qpp**(2/3)) * ((-np.log10(pr))**(-0.55)) * (M_WATER**(-0.5))
+    # S = 0
+    zero_func = lambda Tw: np.sqrt((F*hL*(Tw-Tf))**2 + (S*hPool*(Tw-Tsat))**2) - qpp
+    Tw = newton(zero_func, Tw_guess)
+    return Tw
+
+
+
+
+
 
 ## Variation
 
@@ -103,6 +139,7 @@ if option == 1:
     Pheat = Pwet
     Lchar = Drod
     Lchar = 4 * Af / Pwet
+    print(f"Fluid area Af: {Af} m²")
     print(f"Characteristic length: {Lchar} m")
 
     ## Properties constant 
@@ -117,7 +154,7 @@ if option == 1:
     print(f"Reynolds number: {Re} >> 10,000 -> Turbulent flow")
     print(f"Which leads to friction factor f = {calc_f_1ph(Re)}")
 
-    n = 500
+    n = 50000
     dz = H / n
 
     z = np.linspace(0, H, n)
@@ -136,6 +173,10 @@ if option == 1:
     hfg0 = hg0-hf0
     Tsat0 = PropsSI('T', 'P', P0, 'Q', 0.5, WATER)
     χe[0] = cp*(Tf0-Tsat0)/hfg0
+    print(f"T at inlet: {Tf0} K")
+    print(f"cp at inlet: {cp} J/kgK")
+    print(f'h_fg at inlet: {hfg0} J/kg')
+    print(f"χe0: {χe[0]}")
 
     for i in range(n-1):
         dPdz = calc_dP(G, 0, f, G, Pwet, ρ, g)
@@ -162,10 +203,13 @@ if option == 1:
     ## Secondary temperature evaluations
 
     Tw = np.zeros(n)
+    # Tw[0]
     Tgap = np.zeros(n) # At edge of gap and inner of clad
     Tfuel = np.zeros(n) # At outer of fuel and inner of gap
     Tcl = np.zeros(n) # At center of fuel
     Tsat = np.zeros(n)
+
+    # hf = np.zeros(n) # heat transfer 
 
     ONE_PHASE = 1
     TWO_PHASE = 2
@@ -174,23 +218,18 @@ if option == 1:
         qp = q_lin(qp0, H, z[i])
         Tsat[i] = PropsSI('T', 'P', P[i], 'Q', 0, WATER)
 
-
+        qpp = qp / Pheat
         ## Heat transfer, then 
         if ht_status == ONE_PHASE:
             h = calc_h_DB(Re, Lchar, P[i], Tf[i])
-            # q'' = h (Tw - Tf)
-            # -> Tw = Tf + q''/h
-
-            # q'' = q' / Pheat
-            qpp = qp / Pheat
+            # hf[i] = h
             Tw[i] = Tf[i] + qpp / h
-
-            if Tw[i] >= Tsat[i]:
-                ht_status = TWO_PHASE
         elif ht_status == TWO_PHASE:
-
-            pass
-
+            Tw[i] = calc_Tw_LW(Re, Lchar, P[i], Tf[i], 0, qpp, Tw[i-1]) # Calls previous Tw as a starting guess, but this is never called on z=0
+        if Tw[i] >= Tsat[i]:
+            ht_status = TWO_PHASE
+        elif Tw[i] < Tsat[i]:
+            ht_status = ONE_PHASE
         ## within clad
         # Tin = Tout + q'/2kπ * ln(Rout/Rin) for annulars
         Tgap[i] = Tw[i] + (qp / (2*kclad*PI)) * np.log(Drod / Dgap)
@@ -231,30 +270,37 @@ if option == 1:
 
 
     plt.plot(Tf-K(0), z*100, label="Fluid T from χe")
-    plt.plot(Tfd-K(0), z*100, linestyle='--', label="Fuid T from direct calculation")
+    plt.plot(Tfd-K(0), z*100, linestyle='--', label="Fuid T (alternate calculation)")
     plt.plot(Tw-K(0), z*100, label="Outer wall T")
     plt.plot(Tgap-K(0), z*100, label="Inside clad T")
     plt.plot(Tfuel-K(0), z*100, label="Outside fuel T")
     plt.plot(Tcl-K(0), z*100, label="Fuel Centerline T")
 
-    plt.plot(Tsat-K(0), z*100, label="T$_{sat}$")
+    plt.plot(Tsat-K(0), z*100, linestyle='--', label="T$_{sat}$")
     plt.xlabel("T (⁰C)")
     plt.ylabel("z (cm)")
     plt.legend()
     plt.show()
-    
-    plt.plot(χe, z*100, label="Equilibrium quality χe")
-    plt.xlabel("χe")
-    plt.ylabel("z (cm)")
-    plt.legend()
-    plt.show()
+
+    # print(f"χe: {χe}")
+    # plt.plot(χe, z*100, label="Equilibrium quality χe")
+    # plt.xlabel("χe")
+    # plt.ylabel("z (cm)")
+    # plt.legend()
+    # plt.show()
 
 
-    plt.plot(P, z*100, label="Pressure")
-    plt.xlabel("P (Pa)")
-    plt.ylabel("z (cm)")
-    plt.legend()
-    plt.show()
+    # plt.plot(P, z*100, label="Pressure")
+    # plt.xlabel("P (Pa)")
+    # plt.ylabel("z (cm)")
+    # plt.legend()
+    # plt.show()
+
+    # plt.plot(hf, z*100, label="h (W/m²K)")
+    # plt.xlabel("h (W/m²K)")
+    # plt.ylabel("z (cm)")
+    # plt.legend()
+    # plt.show()
     
     pass
 elif option == 2:
