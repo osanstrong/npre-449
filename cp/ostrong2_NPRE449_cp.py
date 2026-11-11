@@ -1,5 +1,6 @@
 # Input (optional)
-import argparse
+import sys
+args = sys.argv
 
 # Solving
 import numpy as np
@@ -16,7 +17,14 @@ K = lambda deg_C: deg_C + 237.15
 g = 9.81 # m / s²
 
 #### ---- User Configuration ---- ####
-option = 1 # 1 for PWR, 2 for BWR
+PWR = 1
+BWR = 2
+option = PWR # 1 for PWR, 2 for BWR
+if (len(args) > 1):
+    if args[1] in ['1', 'PWR']:
+        option = PWR
+    elif args[2] in ['2', 'BWR']:
+        option = BWR
 #### -END User Configuration ---- ####
 
 
@@ -47,6 +55,29 @@ def calc_Tf(χe, P, cp):
     Tf = χe*hfg/cp + Tsat
     return Tf
 
+'''
+Calcuates Nu_D using the Dittus-Bolter correlation.
+This is designed for flow within a smooth circular tube, but in this case we assume it may apply to the flow around repeating tubes.
+
+ASSUMES HEATING CONDITIONS, SUBCOOLED FLUID.
+'''
+def calc_Nu_DB(Re, Pr):
+    n = 0.4 # HEATING
+    return 0.023 * (Re**0.8) * (Pr**n)
+
+'''
+Assumes subcooled fluid
+'''
+def calc_h_DB(Re, L, P, T):
+    Pr = propPT('PRANDTL', P, T)
+    Nu = calc_Nu_DB(Re, Pr)
+    k = propPT('CONDUCTIVITY', P, T)
+    # Nu = hL/k
+    # -> h = Nu k / L
+    return Nu*k / L
+
+
+
 
 ## Variation
 
@@ -57,6 +88,7 @@ if option == 1:
     Pitch = 1.25 / 100 # m, originally cm
     Dfuel = 0.81 / 100 # ''
     tgap = 0.005 / 100 # ''
+    Dgap = Dfuel + 2*tgap # '', diameter to where gap meets cladding
     kgap = 0.25 # W/mK
     kfuel = 2.6 # W/mK
     kclad = 21.5 # W/mK
@@ -68,16 +100,22 @@ if option == 1:
 
     Af = Pitch**2 - (0.25 * PI * Drod**2)
     Pwet = PI*Drod
+    Pheat = Pwet
+    Lchar = Drod
+    Lchar = 4 * Af / Pwet
+    print(f"Characteristic length: {Lchar} m")
 
     ## Properties constant 
     prop00 = lambda name: propPT(name, P0, Tf0)
     μ = prop00('viscosity')
     cp = prop00('CPMASS')
     ρ = prop00('D')
+    print(f"Dynamic viscosity: {μ} Pa s")
 
 
-    Re = calc_Re(Drod, G, μ)
+    Re = calc_Re(Lchar, G, μ)
     print(f"Reynolds number: {Re} >> 10,000 -> Turbulent flow")
+    print(f"Which leads to friction factor f = {calc_f_1ph(Re)}")
 
     n = 500
     dz = H / n
@@ -98,7 +136,6 @@ if option == 1:
     hfg0 = hg0-hf0
     Tsat0 = PropsSI('T', 'P', P0, 'Q', 0.5, WATER)
     χe[0] = cp*(Tf0-Tsat0)/hfg0
-
 
     for i in range(n-1):
         dPdz = calc_dP(G, 0, f, G, Pwet, ρ, g)
@@ -122,6 +159,48 @@ if option == 1:
         χe[i+1] = χe[i] + dχedz*dz
         Tf[i+1] = calc_Tf(χe[i+1], P[i+1], cp)
 
+    ## Secondary temperature evaluations
+
+    Tw = np.zeros(n)
+    Tgap = np.zeros(n) # At edge of gap and inner of clad
+    Tfuel = np.zeros(n) # At outer of fuel and inner of gap
+    Tcl = np.zeros(n) # At center of fuel
+    Tsat = np.zeros(n)
+
+    ONE_PHASE = 1
+    TWO_PHASE = 2
+    ht_status = ONE_PHASE    
+    for i in range(n):
+        qp = q_lin(qp0, H, z[i])
+        Tsat[i] = PropsSI('T', 'P', P[i], 'Q', 0, WATER)
+
+
+        ## Heat transfer, then 
+        if ht_status == ONE_PHASE:
+            h = calc_h_DB(Re, Lchar, P[i], Tf[i])
+            # q'' = h (Tw - Tf)
+            # -> Tw = Tf + q''/h
+
+            # q'' = q' / Pheat
+            qpp = qp / Pheat
+            Tw[i] = Tf[i] + qpp / h
+
+            if Tw[i] >= Tsat[i]:
+                ht_status = TWO_PHASE
+        elif ht_status == TWO_PHASE:
+
+            pass
+
+        ## within clad
+        # Tin = Tout + q'/2kπ * ln(Rout/Rin) for annulars
+        Tgap[i] = Tw[i] + (qp / (2*kclad*PI)) * np.log(Drod / Dgap)
+        ## Edge of fuel
+        Tfuel[i] = Tgap[i] + (qp / (2*kgap*PI)) * np.log(Dgap / Dfuel)
+
+        #Within fuel
+        qpp = qp / (0.25 * PI * (Dfuel**2))
+        Tcl[i] = Tfuel[i] + (qpp/(4*kfuel))*(0.25*(Dfuel**2))
+
 
 
 
@@ -133,9 +212,32 @@ if option == 1:
         dT = qp*dz / (G*Af*cp)
         Tfd[i+1] = Tfd[i] + dT
 
+    ## Sanity check
+    qtot_an = qp0*2*H/PI
+    # qtot_nu = sum(q_lin(qp0, H, z))*dz
+    # print(f"Qtot analytic: {qtot_an} W")
+    # print(f"Qtot numeric:  {qtot_nu} W")
+    m = G*Af
+    hin = propPT('H', P0, Tf0)  
+    hout = hin + qtot_an/m
+    print(f"h goes from\n{hin} J/kg to\n{hout} J/kg")
+    # Tfout = PropsSI('T', 'P', P[-1], 'H', hout)
+    Tfout = Tf0 + qtot_an/(m*cp)
+    print(f"Which translates to final Tf of {Tfout-K(0)}⁰C")
 
-    plt.plot(Tf-K(0), z*100, label="Fuel centerline T")
-    plt.plot(Tfd-K(0), z*100, linestyle='--', label="T from χe")
+
+
+
+
+
+    plt.plot(Tf-K(0), z*100, label="Fluid T from χe")
+    plt.plot(Tfd-K(0), z*100, linestyle='--', label="Fuid T from direct calculation")
+    plt.plot(Tw-K(0), z*100, label="Outer wall T")
+    plt.plot(Tgap-K(0), z*100, label="Inside clad T")
+    plt.plot(Tfuel-K(0), z*100, label="Outside fuel T")
+    plt.plot(Tcl-K(0), z*100, label="Fuel Centerline T")
+
+    plt.plot(Tsat-K(0), z*100, label="T$_{sat}$")
     plt.xlabel("T (⁰C)")
     plt.ylabel("z (cm)")
     plt.legend()
@@ -156,6 +258,8 @@ if option == 1:
     
     pass
 elif option == 2:
+
+
     pass
 else:
     raise ValueError(f"'{option}' is not a valid case option (1 for PWR, 2 for BWR)")
