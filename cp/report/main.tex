@@ -1,5 +1,6 @@
 \documentclass[12pt]{article}
 \usepackage{graphicx} % Required for inserting images
+\usepackage{subcaption}
 
 \title{NRPE 349 Computer Project 1: Comparing Analytic and Finite-Difference Numerical solutions to a Transient Spherical System}
 \author{Owen Strong \\
@@ -14,6 +15,29 @@
 
 \usepackage[letterpaper, margin=1in]{geometry}
 \newcommand{\figwidth}{0.75\linewidth}
+\newcommand{\figref}[1]{Fig.~\ref{#1}}
+\newcommand{\defplotW}[3]{
+    \begin{figure}[!htb]
+        \centering
+        \includegraphics[width=#3\linewidth]{fig/#1.png}
+        \caption{#2}
+        \newcommand{\tmplabel}{#1}
+        \label{\tmplabel}
+    \end{figure}
+}
+\newcommand{\defplot}[2]{\defplotW{#1}{#2}{0.75}}
+\newcommand{\defsubplotW}[3]{
+    % \hfill
+    \begin{subfigure}{#3\linewidth}
+        \includegraphics[width=\textwidth]{fig/#1.png}
+        \caption{#2}
+        \newcommand{\tmplabel}{#1}
+        \label{\tmplabel}
+    \end{subfigure}
+    % \hfill
+}
+\newcommand{\defsubplot}[2]{\defsubplotW{#1}{#2}{0.45}}
+
 
 % Common Macros
 \newcommand{\micCi}{~$\mathrm{\mu Ci}$~}
@@ -30,6 +54,7 @@
 \usepackage{listings} % Code visualization, and import from file
 \newacronym{pwr}{PWR}{Pressurized Water Reactor}
 \newacronym{ht}{HT}{heat transfer}
+\newacronym{ghde}{ghde}{General Heat Diffusion Equation}
 \newcommand{\Python}{\texttt{Python}\xspace}
 
 \begin{document}
@@ -43,23 +68,269 @@
 \end{abstract}
 
 \section{Introduction and Background}
-Suppose we wish to solve for the distributions of temperature and pressure in a fuel assembly, which we model as a repeating square lattice 
+\subsection{Problem setup}
+Suppose we wish to solve for the distributions of temperature and pressure in a fuel assembly, which we model as a repeating square lattice.
+The section we will analyze consists of a square prism with side pitch $L$ and height $H$\cite{npre_npre_2026}.
+Along the four corners of the section lie fuel rods of diameter $D_{r}$ (thus equivalent to 1 rod in total), for a total water area $L^2 - \frac{\pi}{4}D_{rod}^2$, and wetted and heated perimeters $\zeta_w=\zeta_h=\pi D_{rod}$.
+The bulk fluid temperature $T_f$ and $P$ at the inlet $z=0$ are known, and heat is generated across the rod sections with a total linear heat generation rate for a given base rate $q'_0$:
+\begin{equation}
+    \label{eq:q_lin}
+    q'(z) = q'_0\sin{\pi \frac{z}{H}}
+\end{equation}
+yielding a corresponding local heat flux:
+\begin{equation}
+    \label{eq:local_flux}
+    q''(z) = \frac{q'(z)}{\zeta_h}
+\end{equation}
+To best approximate this tube-like flow as a tube, we use a specific characteristic length $L_c$ for properties like Reynolds and Nusselt numbers:
+\begin{equation}
+    \label{eq:lchar}
+    L_c = 4\frac{A_f}{\zeta_w}
+\end{equation}
+The fuel rods consist of a central fuel with diameter $D_{f}$ separated by a gap with thickness $t_{g}$ separating it from the cladding, which stretches from diameters $D_f + 2t_g$ to $D_r$.
+These are modelled as static, with known conductivities $k_f$, $k_g$, and $k_c$ respectively, and uniform heat generation across the fuel and the fuel only:
+\begin{equation}
+    \label{eq:fuel_gen}
+    q'''_f(z) = q'(z) / (\frac{\pi}{4}D_f^2)
+\end{equation}
 \subsection{PWR Methodology}
 In a \gls{pwr}, water is pressurized such that we never expect the bulk fluid to boil.
 However, the possibility still remains that some fluid, locally to the surface of the fuel rods, may reach high enough temperatures to enter nucleate boiling.
 Thus, the \gls{pwr} analysis should still consider the possibility of the single-phase \emph{flow} nonetheless entering two-phase \emph{heat transfer}.
-We make the following distinction of \gls{ht}:
-\subsection{Single phase heat transfer and flow}
-\subsection{Two phase heat transfer}
-Since, under PWR conditions (which we intend to verify), bulk fluid temperature $T_f$ still remains well below $T_{sat}$ (allowing the single-phase flow solve for $\chi_e$), our heat transfer must be modified to account for two-phase heat transfer at the boiling surface.
-Rather than correlate $h$ using Dittus-Bolter as above, we adapt the methodology presented by Liu and Winterton\cite{liu_general_1991}.
-This correlation equates the heat flux $q''$ as a combination of a term based on fluid temperature (convective heat transfer), and one based on the fluid's saturation temperature (to account for boiling):
+\subsection{Single phase flow and conservation laws}
+For single-phase flow as relevant to the PWR, let us assume constant properties of the liquid water (as the bulk temperature is assumed to remain below $T_{sat}$ at any observed pressure), with the exception of water known to be saturated (i.e. near the superheated wall; the temperature, saturated liquid enthalpy, and saturated vapor enthalpy will be taken as a function of local pressure in this case), and that no heat is generated in the fluid, nor is any heat conducted axially across the system.
+Let us assume a steady-state system, such as the reactor operating at constant power.\\
+
+Mass, momentum, and energy conservation are known to hold across an arbitrary vertical section in $z$, which we may define at any given $z$ of the vertical ``pipe''.
+Using mass conservation:
+\newcommand{\dd}[1]{\frac{\partial}{\partial#1}}
+\newcommand{\ddt}{\dd{t}}
+\newcommand{\ddz}{\dd{z}}
+\begin{align}
+    \dd{t}\rho + \dd{z}\rho v &= 0 \\
+    0 + \dd{z}G &= 0
+\end{align}
+Thus, the mass flux $G$ can be assumed constant under steady state conditions.\\
+
+Using momentum conservation (for the small $z$-section in a vertical pipe where $\theta=\pi/2$), and evaluating the local shear stress $\tau_f$:
+\begin{align}
+    \dd{t}\rho v + \dd{z}\rho v^2 &= -\dd{z}P - \frac{\tau_f \zeta_w}{A_f} - \rho g\sin{\theta}\\
+    0 + \dd{z}\frac{G^2}{\rho} &= -\dd{z}P - \frac{1}{2}f\frac{G^2\zeta_w}{\rho A_f} - \rho g\\
+    G^2\dd{z}\frac{1}{\rho} &= -\dd{z}P - \frac{1}{2}f\frac{G^2\zeta_w}{\rho A_f} - \rho g
+\end{align}
 \begin{equation}
-    bleh
+    \label{eq:dpdz}
+    \dd{z}P=-G^2\dd{z}\frac{1}{\rho} - \frac{1}{2}f\frac{G^2\zeta_w}{\rho A_f} - \rho g
 \end{equation}
+To estimate the friction factor $f$, we assume a smooth pipe and use the following correlation\cite{bergman_fundamentals_2017}:
+\begin{equation}
+    \label{eq:ffactor}
+    f = 0.316Re^{-0.25} 
+\end{equation}
+where $Re$ is the Reynolds number\cite{bergman_fundamentals_2017}:
+\begin{equation}
+    \label{eq:Re}
+    Re = \frac{GL_c}{\mu}
+\end{equation}
+This, assuming that density decreases with z, makes the pressure definitionally negative, which makes sense.\\
+
+Then, using energy conservation for that small $z$-slice (with water enthalpy denoted $h_w$ to distinguish from heat transfer coefficients):
+\begin{align}
+    \dd{t}\rho h_w + \dd{z}\rho vh &= q''\frac{\zeta_h}{A_f} + \ddz P + q'''\\
+    0 + \ddz h &= \frac{q''\zeta_h}{A_fG}
+\end{align}
+\newcommand{\chie}{\ensuremath{\chi_e}}
+\newcommand{\hfg}{\ensuremath{h_{fg}}}
+where $\zeta_h$ represents wetted perimeter (and this term corresponding to flux contribution from the surface)
+This can be rewritten using the measure equilibrium quality $\chie$, defined such that $h_w=h_f + \chie h_{fg}$ even below or above saturation temperature (i.e. going below 0 or above one, unlike the saturation-specific $\chi$):
+\begin{align}
+    h_w &= h_f + \chie h_{fg} \\
+    \ddz h_w &= \ddz h_f + \hfg\ddz \chie + \chie\dd{\rho}\ddz\rho\\
+\end{align}
+\begin{equation}
+    \label{eq:dxedz}
+    \ddz\chie = \frac{1}{\hfg}\left[\frac{q''\zeta_h}{A_fG} - \left(\dd{\rho}h_f + \chie\dd{\rho}\hfg\right)\right]
+\end{equation}
+Then, using the calculated bulk $\chie$ at a given z, one could calculate the bulk fluid temperature $T_f$:
+\begin{equation}
+    \label{eq:Tf}
+    T_f = \frac{\hfg}{c_p}\chie + T_{sat}
+\end{equation}
+\subsection{Single phase heat transfer to wall}
+In single phase heat transfer, we can approximate the flux at the cladding-fuel interface as a convection boundary:
+\newcommand{\hDB}{\ensuremath{h_{DB}}}
+\begin{equation}
+    \label{eq:q_1p}
+    q''=\hDB(T_w-T_f)
+\end{equation}
+using the Dittus-Bolter correlation\cite{bergman_fundamentals_2017} we find the interface's Nusselt number:
+\begin{equation}
+    Nu_{DB} = 0.023 Re^{0.8}Pr^{0.4}
+\end{equation}
+which yields the requisite heat transfer coefficient $\hDB$:
+\begin{equation}
+    \label{eq:hdb}
+    \hDB = Nu_{DB} * k / L_c
+\end{equation}
+where $k$ is the fluid's thermal conductivity (which we have assumed to be constant across subcooled water).
+This yields the wall temperature $T_w$:
+\begin{equation}
+    \label{eq:Tw_db}
+    T_w(z) = T_f(z) + q''(z)/h_{DB}(z)
+\end{equation}
+up until $T_w>T_{sat}$, at which point boiling effects must be considered.
+\subsection{Two phase heat transfer}
+Under PWR conditions (which we intend to verify), bulk fluid temperature $T_f$ still remains well below $T_{sat}$ (allowing the single-phase flow solve for $\chi_e$).
+However, the wall temperature $T_w$ may exceed saturation temperature $T_{sat}$ for the local pressure, allowing some water local to the wall to boil anyways.
+Our heat transfer must be modified to account for two-phase heat transfer at this boiling surface.
+Rather than correlate $h$ using Dittus-Bolter as above, we adapt the methodology presented by Liu and Winterton\cite{liu_general_1991}.
+This correlation equates the heat flux $q''$ as a combination of a term based on bulk fluid temperature $T_f$(convective heat transfer), and one based on the fluid's saturation temperature $T_{sat}$ (to account for boiling):
+\begin{equation}
+    \label{eq:LW-flux}
+    q'' = \sqrt{\left(
+        \left(Fh_{DB}\Delta T_f\right)^2 + 
+        \left(Sh_{Pool}\Delta T_s\right)^2
+    \right)}
+\end{equation}
+where $\Delta T_f=T_w-T_f$, the difference between wall and bulk fluid temperatures, and $\Delta T_s=T_w-T_{sat}$, the difference between wall and saturated fluid temperatures.\\
+
+The factors $F$ and $S$ dictate each component contribution:
+\begin{equation}
+    \label{eq:LW-F}
+    F = \left(1+\chi_ePr_l\left(\frac{\rho_f}{\rho_g}-1\right)\right)^{0.35}
+\end{equation}
+\begin{equation}
+    \label{eq:LW-S}
+    S = \left(1 + 0.055F^{0.1}Re^{0.16}\right)^{-1}
+\end{equation}
+where $\rho_f$ and $\rho_g$ represent saturated liquid and gas densities at the given $T_{sat}$, respectively, and $Pr_l$ and $Re_l$ the saturated liquid's Prandtl and Reynolds numbers, respectively.\\
+
+The convection heat transfer coefficient $\hDB$ is calculated as normal from Eq.~\ref{eq:hdb}, while the coefficient $h_{Pool}$ models pool-boiling-like contributions from nucleate boiling\cite{liu_general_1991}:
+\begin{equation}
+    \label{eq:hpool}
+    h_{Pool} = 55p_r^{0.12}q''^{2/3}(-log_{10}p_r)^{-0.55}M^{-0.55}
+\end{equation}
+where $p_r$ is reduced pressure $P/P_{crit}$, the flux $q''$ must be in units $\mathrm{\frac{W}{m^2K}}$, and the molar mass of the fluid $M=18.05\mathrm{g}$ strictly in $\mathrm{\frac{g}{mol}}$.
+
+While the local flux $q''$ is known from Eq.~\ref{eq:local_flux}, Eq.~\ref{eq:LW-flux} pits flux as dependent on squares of differences between $T_f$ and two other temperatures $T_f$ and $T_{sat}$ respectively.
+We could fully evaluate this quadratic dependency for $T_w$ in terms of $q''$, however choose instead to use Eq.~\ref{eq:LW-flux} and a numeric solver.
+
+\subsection{Heat transfer from fuel centerline}
+To calculate the fuel centerline temperature, we work backwards from the outer wall cladding, which temperature we know based on conservation of energy and heat transfer from the fluid.\\
+
+For a static annular cylinder with a known constant flux $q''$ and no internal generation, working from the constant properties, cylindrical-radial-only \gls{ghde}:
+\newcommand{\ddr}{\dd{r}}
+\begin{align}
+    \nabla k\nabla T + q''' &= \rho c_p\ddt T\\
+        k\frac{1}{r}\ddr r\ddr T + 0 &= 0\\
+    \ddr r\ddr T &= 0\\
+    r\ddr T &= C_0 \\
+    \ddr T &= C_0/r \\
+    T &= C_0\ln{r} + C_1
+\end{align}
+Knowing the flux $q''=q'/(2\pi R_o)$ at the outer boundary of radius $R_o$:
+\begin{align}
+    q'' &= -k\ddr T(R_o)\\
+    &=-k C_0/R_o\\
+    C_0 &= -q''R_o/k\\
+    &= -q'R_o/(k * 2\pi R_o)\\
+    &= -q'/(2k\pi)
+\end{align}
+Then, knowing the outer temperature $T_o$:
+\begin{align}
+    T(R_o)&=C_0\ln{R_o} + C_1\\
+    T_o&= C_1 - q'\ln{R_o}/(2k\pi)\\
+    C_1&= T_o + q'\ln{R_o}/(2k\pi)\\
+\end{align}
+Which can be combined to find the inner temperature $T_i$:
+\begin{align}
+    T(r) &= C_0\ln{r} + C_1\\
+    &= T_o + q'(\ln{R_o}-\ln{r})/(2k\pi)\\
+    \label{eq:layer_ht}
+    T(R_i)&= T_o + q'(\ln{\frac{R_o}{R_i}})/(2k\pi)
+\end{align}
+Eq.~\ref{eq:layer_ht} to sequentially solve from the outer cladding temperature across the cladding ($R_o=D_r/2$, $R_i=D_f/2 + t_g$), then from the outer gap across the gap to the outer edge of the fuel ($R_o=D_f/2+t_g$, $R_i=D_f/2$), we can derive the fuel centerline temperature likewise using the \gls{ghde}:
+\begin{align}
+    \nabla k\nabla T + q''' &= \rho c_p\ddt T\\
+        k\frac{1}{r}\ddr r\ddr T + q''' &= 0\\
+        \frac{1}{r}\ddr r\ddr T &= -q'''/k\\
+        \ddr r\ddr T &= -q'''r/k\\
+        r\ddr T &= -\frac{q'''r^2}{2k} + C_2 \\
+        \ddr T &= -\frac{q'''r}{2k} + C_2/r \\
+        T(r) &= -\frac{q'''r^2}{4k} + C_2\ln{r} + C_3
+\end{align}
+Knowing that the temperature and $\ddr T$ must be defined at $r=0$, $C_0$.
+Using the known outer temperature of the fuel, at $R_o=D_f/2$, we can solve for the $T_{cl}$:
+\begin{align}
+    T(R_o) &= -\frac{q'''R_o^2}{4k} + C_3 \\
+    C_3 &= T(R_o) + \frac{q'''R_o^2}{4k} \\
+    T(0) &= -\frac{q'''0^2}{4k} + C_3 \\
+    \label{eq:tcl}
+    T_{cl} &= C_3 = T(R_o) + \frac{q'''R_o^2}{4k}
+\end{align}
+using the known $q'''$ from Eq.~\ref{eq:fuel_gen}.
 \section{Experimental Procedure}\label{sec:methods}
+\subsection{Numerical Approximation}
+Using the differential equations we find, we employ a forward Euler scheme with some number $n$ vertical nodes in z (we selected $n=500$), leaving each node with a uniform height $dz=\frac{H}{n}$.
+We set the properties $T_f$ and $P$ of node $0$ to those dictated in problem configuration.
+Then, for each subsequent node $i+1$, we calculate the pressure change rate using Eq.~\ref{eq:dpdz}:
+\begin{equation}
+    \label{eq:euler_dp}
+    P_{i+1} = P_{i} + \left(\ddz P(z_i)\right)dz
+\end{equation}
+We then use the $\ddz P_i$ to calculate $\ddz (\chie)_i$ of the node with Eq.~\ref{eq:dxedz}, and use that to likewise estimate the equilibrium quality of the next node:
+\begin{equation}
+    \label{eq:euler_dxe}
+    (\chie)_{i+1} = (\chie)_{i} + \left(\ddz\chie(z_i)\right)dz
+\end{equation}
+Then, at each node, we we use this to find the node's $T_f$ using Eq.~\ref{eq:Tf}.
+To solve for $T_w$ at each node $i$, we use the Dittus-Bolter-based correlation in Eq.~\ref{eq:Tw_db} if $(T_w)_{i-1} < T_{sat}$, and the Liu-Winterton correlation of Eq.~\ref{eq:LW-flux} while above $T_{sat}$, numerically solving the system with \texttt{Scipy}'s Newton solver\cite{noauthor_newton_nodate}.
+We then solve inwards to the fuel centerline temperature $T_{cl}$ using Eqs.~\ref{eq:layer_ht} and \ref{eq:tcl}.\\
+
+Finally, we repeat all the above calculations over parameter sweeps each of pitch $L$, height $H$, clad thickness, and the inlet mass flux $G$, pressure $P_0$, and temperature $T_{f0}$.
 \section{Experimental Results}\label{sec:results}
+\subsection{PWR}
+We find temperature distributions across the \gls{pwr}, and present in \figref{fig:PWR_T}:
+\begin{figure}
+    \centering
+    \defsubplot{T_PWR}{All temperature distributions across the base \gls{pwr} configuration.}
+    \defsubplot{T_PWR_zoom}{The bulk temperature $T_f$ and wall temperature $T_w$ distributions of the base PWR configuration.}
+    \caption{Temperature distributions across $z$ for the base \gls{pwr} configuration}
+    \label{fig:PWR_T}
+\end{figure}
+
+We also present equilibrium quality $\chie(z)$ and pressure $P(z)$ profiles in Figs.~\ref{Xe_PWR} and \ref{P_PWR}, respectively.\\
+\defplot{Xe_PWR}{The equilibrium quality $\chie(z)$ across the base \gls{pwr} model.}
+\defplot{P_PWR}{The local pressure $P(z)$ across the base \gls{pwr} model.}
+
+The results of several parameter sweeps may be seen in \figref{fig:sweeps}
+\newcommand{\sweepplot}[2]{\defsubplot{sweep_#1}{#2}}
+\begin{figure}
+    \centering
+    \sweepplot{clad}{Across cladding thickness.}
+    \sweepplot{Pitch}{Across pitch.}
+    \sweepplot{H}{Across height.}
+    \sweepplot{G}{Across inlet mass flux.}
+    \sweepplot{P}{Across inlet pressure.}
+    \sweepplot{Tf}{Across inlet temperature.}
+    \caption{Equilibrium quality $\chie$ at outlet, and maximum centerline temperature $\mathrm{max}(T_{cl})$ as solved for using configurations swept over several geometric parameters and inlet conditions.}
+    \label{fig:sweeps}
+\end{figure}
 \FloatBarrier\section{Discussion}\label{sec:disc}
+The $T_f$ presented in \figref{fig:PWR_T} meet expectation, resembling closely an integral of the sinusoidal $q'(t)$ distribution of the problem\cite{npre_npre_2026}.
+Likewise, the $T_w$ start and end matching $T_f$, where $q'=0$, and increase away from $T_f$ towards the center of maximum heat generation, except for towards the top, where $T_w>T_{sat}$, and wall temperature becomes effectively locked near the local $T_sat$ by nucleate boiling occurring at the surface, as predicted using Eq.~\ref{eq:LW-flux}.
+Working inwards, the temperatures become increasingly dominated by thermal resistance until $T_{cl}$, which far exceeds $T_f$, and more closely matches the original sinusoidal heat generation profile.\\
+
+
+The $\chie$ profile closely matches the $T_f$ profile in shape (as the two are directly related through Eq.~\ref{eq:Tf}), and the pressure, as the pipe is smooth, changes very little, affected primarily by gravity.\\
+
+Increasing cladding thickness only slightly increased outlet quality, likely purely as a function of reducing fluid area $A_f$ in Eq.~\ref{eq:dxedz}, but also notably increased $T_cl$, by slightly increasing thermal resistance between fluid and fuel.
+Increasing pitch decreased fluid quality, presumably by increasing $A_f$ as before, which by extension also decreases fluid temperatures and the resulting $T_{cl}$.
+Increasing height increases the amount of total heat generated, increasing outlet quality and maximum temperatures.
+Decreasing inlet mass flux reduces the amount of fluid flow to be heated by the same heat generation, thus increasing the outlet quality and maximum temperatures.
+Increasing inlet pressure increases $T_sat$, rendering with the same temperature to have lower equilibrium quality, albeit only slightly.
+Increasing pressure does not very much affect $T_{cl}$, though the effect it does have may be explained by Eq.~\ref{eq:hpool}'s dependence on reduced pressure, which approaches 1 as $P$ approaches $22.06$~MPa.
+Increasing inlet temperature increases both outlet quality and maximum $T_{cl}$, as is expected from a system with constant total heat generation imparted into the fluid.
 \section{Conclusions}\label{sec:conc}
 \pagebreak
 \printbibliography
