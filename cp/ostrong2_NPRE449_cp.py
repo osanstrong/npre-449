@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 
 
 ## Debugging
-PRINT_DEBUG = True
+PRINT_DEBUG = False
 def dbprint(str):
     if PRINT_DEBUG:
         print(str)
@@ -48,7 +48,8 @@ def calc_f_1ph(Re):
     return 0.316*(Re**-0.25)
 
 def calc_dP(G, drρdz, f, A, Pwet, ρ, g):
-    return -((G**2)*drρdz + 0.5*f*(G**2)*Pwet/(ρ*A) + ρ*g)
+    # Assuming f is a Darcy friction factor, which is 4 times higher than a fanning friction factor
+    return -((G**2)*drρdz + 0.5*f*(G**2)*Pwet/(ρ*A)/4 + ρ*g)
     # return -(0 + ρ*g)
 
 def calc_dχedz(hfg, qlin, Af, G, dhfdP, χe, dhfgdP, dPdz):
@@ -316,12 +317,6 @@ if option == 1:
     IDX_χE = 7
 
     ## Parameter sweeps
-    P0_sweep = [P_MPa*1e6 for P_MPa in [14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18]]
-    dT_sweep = [-50, -35, -25, -15, -5, 0, 5, 15, 25, 35, 50]
-    dT_sweep = [-50, -35, -25, -15, -5, 0, 5, 7, 8, 8.7]
-    Tf0_sweep = [base_config.Tf0 + dT for dT in dT_sweep]
-    clad_sweep = [base_config.Drod * mod for mod in [0.95, 0.96, 0.97, 0.98, 0.99, 1, 1.01, 1.02, 1.03, 1.04, 1.05]]
-
     def plot_χe_Tcl(params, param_label, results):
         fig, ax1 = plt.subplots()
 
@@ -344,32 +339,41 @@ if option == 1:
         plt.show()
         return fig, ax1, ax2
 
-    def conf_custom_P0(P0):
+    def conf_custom(name, val):
         conf = Config(PWR)
-        conf.P0 = P0
+        conf.__setattr__(name, val)
         conf.recalc_secondaries()
         return conf
 
-    # P0_results = [solve_distributions(conf_custom_P0(P0), n) for P0 in P0_sweep]
+    P0_sweep = [P_MPa*1e6 for P_MPa in [14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18]]
+    dT_sweep = [-50, -35, -25, -15, -5, 0, 5, 15, 25, 35, 50]
+    dT_sweep = [-50, -35, -25, -15, -5, 0, 5]
+    Tf0_sweep = [base_config.Tf0 + dT for dT in dT_sweep]
+    clad_sweep = [base_config.Drod * mod for mod in [0.95, 0.96, 0.97, 0.98, 0.99, 1, 1.01, 1.02, 1.03, 1.04, 1.05]]
+
+    G_sweep = [base_config.G * mod for mod in [0.9, 0.91, 0.93, 0.95, 1, 1.1, 1.2, 1.3, 1.5, 2]]
+
+    H_sweep = [base_config.H*mod for mod in [0.4, 0.6, 0.7, 0.8, 0.9, 0.95, 1, 1.05, 1.0]]
+    Pitch_sweep = [base_config.Pitch*mod for mod in [0.98, 1, 1.05, 1.1, 1.2, 1.3, 1.4, 1.5]]#, 1.6, 1.7, 1.8, 2.0, 2.2, 2.4, 3.0]]
+    
+    # P0_results = [solve_distributions(conf_custom('P0', P0), n) for P0 in P0_sweep]
     # plot_χe_Tcl([P0/1e6 for P0 in P0_sweep], 'Inlet P (MPa)', P0_results)
 
+    # Tf0_results = [solve_distributions(conf_custom('Tf0', Tf0), n) for Tf0 in Tf0_sweep]
+    # plot_χe_Tcl([Tf0-K(0) for Tf0 in Tf0_sweep], 'Inlet Tf (⁰C)', Tf0_results)
 
-    def conf_custom_Tf0(Tf0):
-        conf = Config(PWR)
-        conf.Tf0 = Tf0
-        conf.recalc_secondaries()
-        return conf
-
-    Tf0_results = [solve_distributions(conf_custom_Tf0(Tf0), n) for Tf0 in Tf0_sweep]
-    plot_χe_Tcl([Tf0-K(0) for Tf0 in Tf0_sweep], 'Inlet Tf (⁰C)', Tf0_results)
-
-    def conf_custom_Drod(Drod):
-        conf = Config(PWR)
-        conf.Drod = Drod
-        conf.recalc_secondaries()
-        return conf
-    # Drod_results = [solve_distributions(conf_custom_Drod(Drod), n) for Drod in clad_sweep]
+    # Drod_results = [solve_distributions(conf_custom('Drod', Drod), n) for Drod in clad_sweep]
     # plot_χe_Tcl([(Drod - base_config.Dgap) * 100 / 2 for Drod in clad_sweep], 'Clad thickness (cm)', Drod_results)
+
+    G_results = [solve_distributions(conf_custom('G', G), n) for G in G_sweep]
+    plot_χe_Tcl(G_sweep, 'G (kg/m²s)', G_results)
+
+    H_results = [solve_distributions(conf_custom('H', H), n) for H in H_sweep]
+    plot_χe_Tcl(H_sweep, 'H (m)', H_results)
+
+    Pitch_results = [solve_distributions(conf_custom('Pitch', Pitch), n) for Pitch in Pitch_sweep]
+    plot_χe_Tcl([Pitch*100 for Pitch in Pitch_sweep], 'Pitch (cm)', Pitch_results)
+
 
 
 
@@ -382,32 +386,32 @@ if option == 1:
     #     Tfd[i+1] = Tfd[i] + dT
 
 
-    # plt.plot(Tf-K(0), z*100, label="Fluid T from χe")
+    plt.plot(Tf-K(0), z*100, label="Fluid T from χe")
     # plt.plot(Tfd-K(0), z*100, linestyle='--', label="Fuid T (alternate calculation)")
-    # plt.plot(Tw-K(0), z*100, label="Outer wall T")
-    # plt.plot(Tgap-K(0), z*100, label="Inside clad T")
-    # plt.plot(Tfuel-K(0), z*100, label="Outside fuel T")
-    # plt.plot(Tcl-K(0), z*100, label="Fuel Centerline T")
+    plt.plot(Tw-K(0), z*100, label="Outer wall T")
+    plt.plot(Tgap-K(0), z*100, label="Inside clad T")
+    plt.plot(Tfuel-K(0), z*100, label="Outside fuel T")
+    plt.plot(Tcl-K(0), z*100, label="Fuel Centerline T")
 
-    # plt.plot(Tsat-K(0), z*100, linestyle='--', label="T$_{sat}$")
-    # plt.xlabel("T (⁰C)")
-    # plt.ylabel("z (cm)")
-    # plt.legend()
-    # plt.show()
+    plt.plot(Tsat-K(0), z*100, linestyle='--', label="T$_{sat}$")
+    plt.xlabel("T (⁰C)")
+    plt.ylabel("z (cm)")
+    plt.legend()
+    plt.show()
 
-    # print(f"χe: {χe}")
-    # plt.plot(χe, z*100, label="Equilibrium quality χe")
-    # plt.xlabel("χe")
-    # plt.ylabel("z (cm)")
-    # plt.legend()
-    # plt.show()
+    print(f"χe: {χe}")
+    plt.plot(χe, z*100, label="Equilibrium quality χe")
+    plt.xlabel("χe")
+    plt.ylabel("z (cm)")
+    plt.legend()
+    plt.show()
 
 
-    # plt.plot(P, z*100, label="Pressure")
-    # plt.xlabel("P (Pa)")
-    # plt.ylabel("z (cm)")
-    # plt.legend()
-    # plt.show()
+    plt.plot(P, z*100, label="Pressure")
+    plt.xlabel("P (Pa)")
+    plt.ylabel("z (cm)")
+    plt.legend()
+    plt.show()
 
     # plt.plot(hf, z*100, label="h (W/m²K)")
     # plt.xlabel("h (W/m²K)")
